@@ -1,0 +1,11 @@
+id = "wingman"
+name = "Wingman"
+version = "0.1.0"
+description = "Wingman AI code assistant with inline completions"
+authors = ["Wingman Contributors"]
+repository = "https://github.com/yourorg/wingman"
+schema_version = 1
+
+[slash_commands.wingman]
+description = "Generate code with Wingman AI"
+requires_argument = true

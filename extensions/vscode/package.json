@@ -1,0 +1,67 @@
+{
+  "name": "wingman",
+  "displayName": "Wingman AI Assistant",
+  "description": "AI code assistant with inline completions",
+  "version": "0.1.0",
+  "publisher": "wingman",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Machine Learning",
+    "Snippets",
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "wingman.open",
+        "title": "Wingman: Open",
+        "icon": "$(comment-discussion)"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "wingman.open",
+          "group": "9_cutcopypaste@5"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Wingman",
+      "properties": {
+        "wingman.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable Wingman inline completions"
+        },
+        "wingman.inferencePort": {
+          "type": "number",
+          "default": 7891,
+          "description": "Port for Wingman inference server"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "18.x",
+    "@typescript-eslint/eslint-plugin": "^6.15.0",
+    "@typescript-eslint/parser": "^6.15.0",
+    "eslint": "^8.56.0",
+    "typescript": "^5.3.3"
+  }
+}
