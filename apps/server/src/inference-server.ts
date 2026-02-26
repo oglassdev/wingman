@@ -2,9 +2,10 @@ import { writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 
 import type { AgentEvent } from "@mariozechner/pi-agent-core";
-import { Elysia, sse, status } from "elysia";
+import { Elysia, sse, status, t, type Static } from "elysia";
 
 import type {
+	InferenceServerStatus,
 	WingmanContext,
 	WritebackPayload,
 } from "../../../packages/shared/src/types";
@@ -16,8 +17,100 @@ import { loadSettings } from "./settings";
 const DEFAULT_PORT = 7891;
 const ABORT_TIMEOUT_MS = 2_000;
 
+const nullableStringSchema = t.Nullable(t.String());
+const nullableLineSchema = t.Nullable(t.Integer({ minimum: 0 }));
+
+const okResponseSchema = t.Object({ ok: t.Literal(true) });
+const errorResponseSchema = t.Object({ error: t.String() });
+const contextSchema = t.Object({
+	file: nullableStringSchema,
+	line: nullableLineSchema,
+	selection: nullableStringSchema,
+	surroundingCode: nullableStringSchema,
+});
+const contextUpdateSchema = t.Object({
+	file: t.Optional(nullableStringSchema),
+	line: t.Optional(nullableLineSchema),
+	selection: t.Optional(nullableStringSchema),
+	surroundingCode: t.Optional(nullableStringSchema),
+});
+const generateBodySchema = t.Object({
+	prompt: t.String(),
+});
+const writebackPayloadSchema = t.Object({
+	file: nullableStringSchema,
+	line: nullableLineSchema,
+	code: nullableStringSchema,
+});
+const writebackPostSchema = t.Object({
+	file: nullableStringSchema,
+	line: nullableLineSchema,
+	code: nullableStringSchema,
+});
+const writebackQuerySchema = t.Object({
+	file: t.String({ minLength: 1 }),
+});
+const healthSchema = t.Object({
+	ok: t.Literal(true),
+	port: t.Integer({ minimum: 0 }),
+	model: nullableStringSchema,
+});
+
+type ContextUpdateBody = Static<typeof contextUpdateSchema>;
+type GenerateBody = Static<typeof generateBodySchema>;
+type WritebackPostBody = Static<typeof writebackPostSchema>;
+type WritebackQuery = Static<typeof writebackQuerySchema>;
+
 const writebackStore = new Map<string, WritebackPayload>();
 let currentServerPort: number | null = null;
+
+class HttpApiError extends Error {
+	constructor(
+		public readonly statusCode: number,
+		message: string,
+	) {
+		super(message);
+		this.name = "HttpApiError";
+	}
+}
+
+class BusyRequestError extends HttpApiError {
+	constructor() {
+		super(409, "Another request is still shutting down.");
+		this.name = "BusyRequestError";
+	}
+}
+
+class MissingContextError extends HttpApiError {
+	constructor() {
+		super(400, "No context. Call POST /context first.");
+		this.name = "MissingContextError";
+	}
+}
+
+class NotConfiguredError extends HttpApiError {
+	constructor() {
+		super(503, "Wingman not configured. Open the settings panel.");
+		this.name = "NotConfiguredError";
+	}
+}
+
+function normalizeContextUpdate(body: ContextUpdateBody): Partial<WingmanContext> {
+	return {
+		file: body.file ?? null,
+		line: body.line ?? null,
+		selection: body.selection ?? null,
+		surroundingCode: body.surroundingCode ?? null,
+	};
+}
+
+function normalizeWritebackPayload(body: WritebackPostBody): WritebackPayload {
+	return {
+		file: body.file ?? null,
+		line: body.line ?? null,
+		code: body.code ?? null,
+	};
+}
 
 async function waitForAbortOrTimeout(): Promise<boolean> {
 	const agent = getAgent();
@@ -35,58 +128,9 @@ async function waitForAbortOrTimeout(): Promise<boolean> {
 	return Promise.race([idle, timeout]);
 }
 
-function parseContextBody(body: unknown): Partial<WingmanContext> {
-	if (!body || typeof body !== "object") {
-		return {};
-	}
-
-	const record = body as Record<string, unknown>;
-
-	return {
-		file: typeof record.file === "string" ? record.file : null,
-		line:
-			typeof record.line === "number" && Number.isFinite(record.line)
-				? record.line
-				: null,
-		selection: typeof record.selection === "string" ? record.selection : null,
-		surroundingCode:
-			typeof record.surroundingCode === "string" ? record.surroundingCode : null,
-	};
-}
-
-function parseWritebackBody(body: unknown): WritebackPayload {
-	if (!body || typeof body !== "object") {
-		return { file: null, line: null, code: null };
-	}
-
-	const record = body as Record<string, unknown>;
-	return {
-		file: typeof record.file === "string" ? record.file : null,
-		line:
-			typeof record.line === "number" && Number.isFinite(record.line)
-				? record.line
-				: null,
-		code: typeof record.code === "string" ? record.code : null,
-	};
-}
-
-async function prepareStreamingRun(): Promise<
-	| { ok: true }
-	| ReturnType<typeof status<409, { error: string }>>
-> {
-	const canProceed = await waitForAbortOrTimeout();
-	if (canProceed) {
-		return { ok: true };
-	}
-
-	return status(409, { error: "Another request is still shutting down." });
-}
-
 function streamAgentPrompt(request: Request, prompt: string) {
 	if (!isAgentConfigured()) {
-		return status(503, {
-			error: "Wingman not configured. Open the settings panel.",
-		});
+		throw new NotConfiguredError();
 	}
 
 	const agent = getAgent();
@@ -131,7 +175,8 @@ function streamAgentPrompt(request: Request, prompt: string) {
 			});
 
 			try {
-				void agent.prompt(prompt)
+				void agent
+					.prompt(prompt)
 					.then(() => {
 						push("[DONE]");
 						finish();
@@ -154,7 +199,7 @@ function streamAgentPrompt(request: Request, prompt: string) {
 					}
 
 					const chunk = queue.shift();
-					if (chunk) {
+					if (chunk !== undefined) {
 						yield sse(chunk);
 					}
 				}
@@ -167,86 +212,178 @@ function streamAgentPrompt(request: Request, prompt: string) {
 }
 
 function createInferenceApp() {
-	return new Elysia()
-		.get("/health", () =>
-			({
-				ok: true,
-				port: currentServerPort ?? DEFAULT_PORT,
-				model: getAgentModelId(),
-			}),
+	return new Elysia({
+		name: "wingman-inference-server",
+	})
+		.state({
+			writebackStore,
+		})
+		.decorate({
+			getPort(): number {
+				return currentServerPort ?? DEFAULT_PORT;
+			},
+			applyContextUpdate(body: ContextUpdateBody): WingmanContext {
+				const nextContext = setContext(normalizeContextUpdate(body));
+				const agent = getAgent();
+				agent.setSystemPrompt(buildSystemPrompt(nextContext));
+				agent.clearMessages();
+				return nextContext;
+			},
+			async ensureStreamingSlot() {
+				const ok = await waitForAbortOrTimeout();
+				if (!ok) {
+					throw new BusyRequestError();
+				}
+			},
+			streamPrompt(request: Request, prompt: string) {
+				return streamAgentPrompt(request, prompt);
+			},
+			async reloadAgentConfig() {
+				const settings = await loadSettings();
+				reconfigureAgent(settings);
+			},
+		})
+		.onError(({ code, error }) => {
+			if (error instanceof HttpApiError) {
+				return status(error.statusCode as 400 | 409 | 503, {
+					error: error.message,
+				});
+			}
+
+			if (code === "VALIDATION") {
+				return status(400, { error: error.message });
+			}
+
+			if (code === "NOT_FOUND") {
+				return status(404, { error: "Not found" });
+			}
+
+			console.error("Inference server error", error);
+			return status(500, { error: "Internal server error" });
+		})
+		.group("", (app) =>
+			app
+				.get(
+					"/health",
+					({ getPort }) =>
+						({
+							ok: true,
+							port: getPort(),
+							model: getAgentModelId(),
+						}) satisfies InferenceServerStatus,
+					{
+						response: {
+							200: healthSchema,
+						},
+					},
+				)
+				.get("/context", () => getContext(), {
+					response: {
+						200: contextSchema,
+					},
+				})
+				.post(
+					"/context",
+					({ body, applyContextUpdate }) => {
+						applyContextUpdate(body);
+						return { ok: true } as const;
+					},
+					{
+						body: contextUpdateSchema,
+						response: {
+							200: okResponseSchema,
+							400: errorResponseSchema,
+						},
+					},
+				)
+				.get("/inline", async ({ request, ensureStreamingSlot, streamPrompt }) => {
+					const context = getContext();
+					if (!context.file || !context.surroundingCode) {
+						throw new MissingContextError();
+					}
+
+					await ensureStreamingSlot();
+					return streamPrompt(request, buildFimPrompt(context));
+				})
+				.post(
+					"/generate",
+					async ({ body, request, ensureStreamingSlot, streamPrompt }) => {
+						const { prompt } = body as GenerateBody;
+						if (!prompt.trim()) {
+							throw new HttpApiError(400, "Prompt is required.");
+						}
+
+						await ensureStreamingSlot();
+						return streamPrompt(request, prompt);
+					},
+					{
+						body: generateBodySchema,
+						response: {
+							400: errorResponseSchema,
+							409: errorResponseSchema,
+							503: errorResponseSchema,
+						},
+					},
+				)
+				.post("/abort", () => {
+					getAgent().abort();
+					return { ok: true } as const;
+				}, {
+					response: {
+						200: okResponseSchema,
+					},
+				})
+				.post("/reload-config", async ({ reloadAgentConfig }) => {
+					await reloadAgentConfig();
+					return { ok: true } as const;
+				}, {
+					response: {
+						200: okResponseSchema,
+					},
+				}),
 		)
-		.post("/context", async ({ body }) => {
-			const nextContext = setContext(parseContextBody(body));
-			const agent = getAgent();
-			agent.setSystemPrompt(buildSystemPrompt(nextContext));
-			agent.clearMessages();
-			return { ok: true };
-		})
-		.get("/context", () => getContext())
-		.get("/inline", async ({ request }) => {
-			const context = getContext();
-			if (!context.file || !context.surroundingCode) {
-				return status(400, { error: "No context. Call POST /context first." });
-			}
+		.group("/writeback", (app) =>
+			app
+				.post(
+					"",
+					({ body, store }) => {
+						const payload = normalizeWritebackPayload(body as WritebackPostBody);
+						if (!payload.file) {
+							throw new HttpApiError(400, "file is required");
+						}
 
-			const prep = await prepareStreamingRun();
-			if ("ok" in prep === false) {
-				return prep;
-			}
+						store.writebackStore.set(payload.file, payload);
+						return { ok: true } as const;
+					},
+					{
+						body: writebackPostSchema,
+						response: {
+							200: okResponseSchema,
+							400: errorResponseSchema,
+						},
+					},
+				)
+				.get(
+					"",
+					({ query, store }) => {
+						const { file } = query as WritebackQuery;
+						const payload = store.writebackStore.get(file);
+						if (!payload) {
+							return { file: null, line: null, code: null } as const;
+						}
 
-			return streamAgentPrompt(request, buildFimPrompt(context));
-		})
-		.post("/generate", async ({ body, request }) => {
-			const prompt =
-				body &&
-				typeof body === "object" &&
-				typeof (body as { prompt?: unknown }).prompt === "string"
-					? (body as { prompt: string }).prompt
-					: "";
-
-			if (!prompt.trim()) {
-				return status(400, { error: "Prompt is required." });
-			}
-
-			const prep = await prepareStreamingRun();
-			if ("ok" in prep === false) {
-				return prep;
-			}
-
-			return streamAgentPrompt(request, prompt);
-		})
-		.post("/abort", () => {
-			getAgent().abort();
-			return { ok: true };
-		})
-		.post("/writeback", async ({ body }) => {
-			const payload = parseWritebackBody(body);
-			if (!payload.file) {
-				return status(400, { error: "file is required" });
-			}
-
-			writebackStore.set(payload.file, payload);
-			return { ok: true };
-		})
-		.get("/writeback", ({ query }) => {
-			const file = typeof query.file === "string" ? query.file : null;
-			if (!file) {
-				return status(400, { error: "file query param is required" });
-			}
-
-			const payload = writebackStore.get(file);
-			if (!payload) {
-				return { file: null, line: null, code: null };
-			}
-
-			writebackStore.delete(file);
-			return payload;
-		})
-		.post("/reload-config", async () => {
-			const settings = await loadSettings();
-			reconfigureAgent(settings);
-			return { ok: true };
-		});
+						store.writebackStore.delete(file);
+						return payload;
+					},
+					{
+						query: writebackQuerySchema,
+						response: {
+							200: writebackPayloadSchema,
+							400: errorResponseSchema,
+						},
+					},
+				),
+		);
 }
 
 async function isPortAvailable(port: number): Promise<boolean> {
@@ -297,15 +434,13 @@ export async function startInferenceServer(): Promise<InferenceServerHandle> {
 
 	const port = await choosePort(DEFAULT_PORT);
 	const app = createInferenceApp();
-	const server = Bun.serve({
+	app.listen({
 		hostname: "127.0.0.1",
 		port,
-		fetch(request) {
-			return app.handle(request);
-		},
 	});
 
-	const resolvedPort = server.port ?? port;
+	const resolvedPort =
+		typeof app.server?.port === "number" ? app.server.port : port;
 	currentServerPort = resolvedPort;
 	await writeFile(WINGMAN_PORT_FILE, String(resolvedPort), "utf8");
 
@@ -313,7 +448,7 @@ export async function startInferenceServer(): Promise<InferenceServerHandle> {
 		port: resolvedPort,
 		url: `http://127.0.0.1:${resolvedPort}`,
 		stop: () => {
-			server.stop(true);
+			void app.stop(true);
 			currentServerPort = null;
 		},
 	};
