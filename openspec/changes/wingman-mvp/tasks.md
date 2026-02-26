@@ -26,11 +26,11 @@
 
 ## 3. Electrobun Main Process — Context & IPC
 
-- [ ] 3.1 Parse `--file`, `--line`, `--selection` from `process.argv` in `apps/server/src/index.ts`
-- [ ] 3.2 After server starts, if CLI context args are present, call `POST /context` on the local server with parsed values
-- [ ] 3.3 Register Electrobun IPC handler `settings:read` — calls `loadSettings()` and returns the settings object to the UI
-- [ ] 3.4 Register Electrobun IPC handler `settings:write` — calls `saveSettings()` then `POST /reload-config` on the inference server
-- [ ] 3.5 Update `electrobun.config.ts` window dimensions to 640×480 and set `alwaysOnTop: true`
+- [x] 3.1 Parse `--file`, `--line`, `--selection` from `process.argv` in `apps/server/src/index.ts`
+- [x] 3.2 After server starts, if CLI context args are present, call `POST /context` on the local server with parsed values
+- [x] 3.3 Register Electrobun IPC handler `settings:read` — calls `loadSettings()` and returns the settings object to the UI
+- [x] 3.4 Register Electrobun IPC handler `settings:write` — calls `saveSettings()` then `POST /reload-config` on the inference server
+- [x] 3.5 Update `electrobun.config.ts` window dimensions to 640×480 and set `alwaysOnTop: true`
 - [ ] 3.6 Add system tray / menu bar icon: hide window on close, show "Quit Wingman" context menu item
 
 ## 4. Wingman UI — React Client

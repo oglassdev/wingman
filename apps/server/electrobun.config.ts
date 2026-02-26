@@ -24,4 +24,12 @@ export default {
 			bundleCEF: false,
 		},
 	},
+	runtime: {
+		exitOnLastWindowClosed: false,
+		window: {
+			width: 640,
+			height: 480,
+			alwaysOnTop: true,
+		},
+	},
 } satisfies ElectrobunConfig;
