@@ -35,15 +35,15 @@
 
 ## 4. Wingman UI — React Client
 
-- [ ] 4.1 Replace placeholder `apps/client/src/App.tsx` with a two-tab layout: Settings tab and Generate tab
-- [ ] 4.2 Create `apps/client/src/hooks/useServerContext.ts` — polls `GET /context` every 2s and returns the current `WingmanContext`
-- [ ] 4.3 Create `apps/client/src/hooks/useSettings.ts` — reads settings on mount via `settings:read` IPC; exposes `save(settings)` that calls `settings:write` IPC
-- [ ] 4.4 Build `apps/client/src/components/ContextHeader.tsx` — displays file name and line from `useServerContext`; shows "No file context" when null
-- [ ] 4.5 Build `apps/client/src/components/SettingsPanel.tsx` — form with fields: provider selector, backend URL, API key (masked), model ID, temperature slider; Save triggers `useSettings.save()`
-- [ ] 4.6 Build `apps/client/src/components/GeneratePanel.tsx` — prompt textarea, Generate button, streaming code block, Stop button, Write to Editor button
-- [ ] 4.7 Implement streaming in `GeneratePanel` — `fetch` with `ReadableStream` consuming SSE from `POST /generate`; append deltas to code block; Stop calls `POST /abort`
-- [ ] 4.8 Implement "Write to Editor" in `GeneratePanel` — `POST /writeback` with `{ file, line, code }` from current context; show "Sent!" confirmation
-- [ ] 4.9 Read inference server port from `GET /health` on mount and store in React context for all HTTP calls
+- [x] 4.1 Replace placeholder `apps/client/src/App.tsx` with a two-tab layout: Settings tab and Generate tab
+- [x] 4.2 Create `apps/client/src/hooks/useServerContext.ts` — polls `GET /context` every 2s and returns the current `WingmanContext`
+- [x] 4.3 Create `apps/client/src/hooks/useSettings.ts` — reads settings on mount via `settings:read` IPC; exposes `save(settings)` that calls `settings:write` IPC
+- [x] 4.4 Build `apps/client/src/components/ContextHeader.tsx` — displays file name and line from `useServerContext`; shows "No file context" when null
+- [x] 4.5 Build `apps/client/src/components/SettingsPanel.tsx` — form with fields: provider selector, backend URL, API key (masked), model ID, temperature slider; Save triggers `useSettings.save()`
+- [x] 4.6 Build `apps/client/src/components/GeneratePanel.tsx` — prompt textarea, Generate button, streaming code block, Stop button, Write to Editor button
+- [x] 4.7 Implement streaming in `GeneratePanel` — `fetch` with `ReadableStream` consuming SSE from `POST /generate`; append deltas to code block; Stop calls `POST /abort`
+- [x] 4.8 Implement "Write to Editor" in `GeneratePanel` — `POST /writeback` with `{ file, line, code }` from current context; show "Sent!" confirmation
+- [x] 4.9 Read inference server port from `GET /health` on mount and store in React context for all HTTP calls
 
 ## 5. VS Code Extension
 

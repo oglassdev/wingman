@@ -1,1 +1,17 @@
 @import "tailwindcss";
+
+:root {
+	color-scheme: dark;
+	font-family: "IBM Plex Sans", "SF Pro Text", "Segoe UI", sans-serif;
+}
+
+html,
+body,
+#root {
+	height: 100%;
+}
+
+body {
+	margin: 0;
+	background: #090b10;
+}

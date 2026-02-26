@@ -12,6 +12,7 @@
       "name": "@wingman/client",
       "version": "1.0.0",
       "dependencies": {
+        "electrobun": "1.14.4",
         "react": "^19.0.0",
         "react-dom": "^19.0.0",
       },

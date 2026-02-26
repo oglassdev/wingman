@@ -1,115 +1,67 @@
 import { useState } from "react";
 
+import { ContextHeader } from "./components/ContextHeader";
+import { GeneratePanel } from "./components/GeneratePanel";
+import { SettingsPanel } from "./components/SettingsPanel";
+import { useServerPort } from "./context/ServerPortContext";
+import { useServerContext } from "./hooks/useServerContext";
+import { useSettings } from "./hooks/useSettings";
+
+type Tab = "generate" | "settings";
+
 function App() {
-	const [count, setCount] = useState(0);
+	const [tab, setTab] = useState<Tab>("generate");
+	const serverContext = useServerContext();
+	const settingsState = useSettings();
+	const { port, isLoading: isPortLoading, error: portError } = useServerPort();
 
 	return (
-		<div className="min-h-screen bg-gradient-to-br from-indigo-500 to-purple-600 text-gray-900">
-			<div className="container mx-auto px-4 py-10 max-w-3xl">
-				<h1 className="text-5xl font-bold text-center text-white mb-2 drop-shadow-lg">
-					Wingman
-				</h1>
-				<p className="text-xl text-center text-white/90 mb-10">
-					Server + Client architecture with Turborepo
-				</p>
-
-				<div className="bg-white rounded-xl shadow-xl p-8 mb-8">
-					<h2 className="text-2xl font-semibold text-indigo-600 mb-4">
-						Interactive Counter
-					</h2>
-					<p className="mb-4 text-gray-600">
-						Click the button below to test React state. With HMR enabled, you
-						can edit this component and see changes instantly without losing
-						state.
-					</p>
-					<div className="flex items-center gap-4">
-						<button
-							onClick={() => setCount((c) => c + 1)}
-							className="px-6 py-3 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 transition-colors shadow-md hover:shadow-lg"
-						>
-							Count: {count}
-						</button>
-						<button
-							onClick={() => setCount(0)}
-							className="px-4 py-3 bg-gray-200 text-gray-700 font-medium rounded-lg hover:bg-gray-300 transition-colors"
-						>
-							Reset
-						</button>
-					</div>
-				</div>
-
-				<div className="bg-white rounded-xl shadow-xl p-8 mb-8">
-					<h2 className="text-2xl font-semibold text-indigo-600 mb-4">
-						Getting Started
-					</h2>
-					<ul className="space-y-3 text-gray-700">
-						<li className="flex items-start gap-2">
-							<span className="text-indigo-500 font-bold">1.</span>
-							<span>
-								Run{" "}
-								<code className="bg-gray-100 px-2 py-1 rounded text-sm">
-									pnpm dev
-								</code>{" "}
-								for development without HMR
-							</span>
-						</li>
-						<li className="flex items-start gap-2">
-							<span className="text-indigo-500 font-bold">2.</span>
-							<span>
-								Run{" "}
-								<code className="bg-gray-100 px-2 py-1 rounded text-sm">
-									pnpm dev:hmr
-								</code>{" "}
-								for development with hot reload
-							</span>
-						</li>
-						<li className="flex items-start gap-2">
-							<span className="text-indigo-500 font-bold">3.</span>
-							<span>
-								Run{" "}
-								<code className="bg-gray-100 px-2 py-1 rounded text-sm">
-									pnpm build
-								</code>{" "}
-								to build for production
-							</span>
-						</li>
-					</ul>
-				</div>
-
-				<div className="bg-white rounded-xl shadow-xl p-8">
-					<h2 className="text-2xl font-semibold text-indigo-600 mb-4">Monorepo Stack</h2>
-					<div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-						<div className="text-center p-4 bg-gray-50 rounded-lg">
-							<div className="text-3xl mb-2">⚡</div>
-							<div className="font-medium">Electrobun</div>
+		<div className="h-screen w-screen overflow-hidden bg-[radial-gradient(circle_at_15%_0%,rgba(34,211,238,0.22),transparent_45%),radial-gradient(circle_at_100%_0%,rgba(251,191,36,0.16),transparent_42%),#0a0b10] text-white">
+			<div className="relative flex h-full flex-col gap-3 p-3">
+				<div className="rounded-2xl border border-white/10 bg-white/5 p-3 shadow-2xl shadow-black/30 backdrop-blur">
+					<div className="mb-3 flex items-center justify-between gap-3">
+						<div>
+							<h1 className="text-lg font-semibold tracking-tight">Wingman</h1>
+							<p className="text-xs text-zinc-400">
+								{isPortLoading ? "Connecting..." : `Inference server :${port}`}
+							</p>
 						</div>
-						<div className="text-center p-4 bg-gray-50 rounded-lg">
-							<div className="text-3xl mb-2">⚛️</div>
-							<div className="font-medium">React</div>
-						</div>
-						<div className="text-center p-4 bg-gray-50 rounded-lg">
-							<div className="text-3xl mb-2">🎨</div>
-							<div className="font-medium">Tailwind</div>
-						</div>
-						<div className="text-center p-4 bg-gray-50 rounded-lg">
-							<div className="text-3xl mb-2">🔥</div>
-							<div className="font-medium">Vite HMR</div>
-						</div>
-						<div className="text-center p-4 bg-gray-50 rounded-lg">
-							<div className="text-3xl mb-2">🚀</div>
-							<div className="font-medium">Turborepo</div>
+						<div className="flex rounded-xl border border-white/10 bg-black/20 p-1">
+							{(["generate", "settings"] as const).map((nextTab) => (
+								<button
+									key={nextTab}
+									type="button"
+									onClick={() => setTab(nextTab)}
+									className={`rounded-lg px-3 py-1.5 text-xs font-medium capitalize transition ${
+										tab === nextTab
+											? "bg-white text-zinc-900"
+											: "text-zinc-300 hover:bg-white/5"
+									}`}
+								>
+									{nextTab}
+								</button>
+							))}
 						</div>
 					</div>
+
+					<ContextHeader
+						context={serverContext.context}
+						isLoading={serverContext.isLoading}
+					/>
+
+					{serverContext.error || portError ? (
+						<p className="mt-2 text-xs text-rose-200">
+							{serverContext.error ?? portError}
+						</p>
+					) : null}
 				</div>
 
-				<div className="text-center text-white/80 mt-10 p-6 bg-white/10 rounded-lg backdrop-blur">
-					<p>
-						Edit{" "}
-						<code className="bg-white/20 px-2 py-1 rounded text-sm">
-							apps/client/src/App.tsx
-						</code>{" "}
-						and save to see HMR in action
-					</p>
+				<div className="min-h-0 flex-1 rounded-2xl border border-white/10 bg-white/5 p-3 shadow-xl shadow-black/20 backdrop-blur">
+					{tab === "settings" ? (
+						<SettingsPanel settingsState={settingsState} />
+					) : (
+						<GeneratePanel context={serverContext.context} />
+					)}
 				</div>
 			</div>
 		</div>

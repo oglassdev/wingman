@@ -116,6 +116,7 @@ function createMainWindow() {
 		title: "Wingman",
 		url,
 		rpc,
+		transparent: true,
 		frame: getFloatingPanelFrame(),
 	});
 	window.setAlwaysOnTop(true);
