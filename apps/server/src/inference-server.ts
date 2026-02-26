@@ -2,7 +2,7 @@ import { writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 
 import type { AgentEvent } from "@mariozechner/pi-agent-core";
-import { Elysia } from "elysia";
+import { Elysia, sse, status } from "elysia";
 
 import type {
 	WingmanContext,
@@ -19,27 +19,6 @@ const ABORT_TIMEOUT_MS = 2_000;
 const writebackStore = new Map<string, WritebackPayload>();
 let currentServerPort: number | null = null;
 
-function json(data: unknown, status = 200): Response {
-	return new Response(JSON.stringify(data), {
-		status,
-		headers: { "content-type": "application/json" },
-	});
-}
-
-function sse(data: string): string {
-	return `${data
-		.split("\n")
-		.map((line) => `data: ${line}`)
-		.join("\n")}\n\n`;
-}
-
-function withCorsHeaders(headers: Headers): Headers {
-	headers.set("cache-control", "no-cache");
-	headers.set("connection", "keep-alive");
-	headers.set("content-type", "text/event-stream");
-	return headers;
-}
-
 async function waitForAbortOrTimeout(): Promise<boolean> {
 	const agent = getAgent();
 	if (!agent.state.isStreaming) {
@@ -54,17 +33,6 @@ async function waitForAbortOrTimeout(): Promise<boolean> {
 
 	const idle = agent.waitForIdle().then(() => true);
 	return Promise.race([idle, timeout]);
-}
-
-function requireConfiguredAgent(): Response | null {
-	if (isAgentConfigured()) {
-		return null;
-	}
-
-	return json(
-		{ error: "Wingman not configured. Open the settings panel." },
-		503,
-	);
 }
 
 function parseContextBody(body: unknown): Partial<WingmanContext> {
@@ -102,120 +70,133 @@ function parseWritebackBody(body: unknown): WritebackPayload {
 	};
 }
 
-async function prepareStreamingRun(): Promise<Response | null> {
+async function prepareStreamingRun(): Promise<
+	| { ok: true }
+	| ReturnType<typeof status<409, { error: string }>>
+> {
 	const canProceed = await waitForAbortOrTimeout();
 	if (canProceed) {
-		return null;
+		return { ok: true };
 	}
 
-	return json({ error: "Another request is still shutting down." }, 409);
+	return status(409, { error: "Another request is still shutting down." });
 }
 
-function streamAgentPrompt(request: Request, prompt: string): Response {
-	const guardResponse = requireConfiguredAgent();
-	if (guardResponse) {
-		return guardResponse;
+function streamAgentPrompt(request: Request, prompt: string) {
+	if (!isAgentConfigured()) {
+		return status(503, {
+			error: "Wingman not configured. Open the settings panel.",
+		});
 	}
 
 	const agent = getAgent();
-	let unsubscribe: (() => void) | undefined;
+	const queue: string[] = [];
+	let resolveNext: (() => void) | null = null;
+	let done = false;
 
-	const stream = new ReadableStream<Uint8Array>({
-		async start(controller) {
-			const encoder = new TextEncoder();
-			let closed = false;
+	const notify = () => {
+		resolveNext?.();
+		resolveNext = null;
+	};
 
-			const close = () => {
-				if (closed) return;
-				closed = true;
-				try {
-					controller.close();
-				} catch {
-					// Ignore double-close races during aborts.
-				}
-			};
+	const push = (chunk: string) => {
+		queue.push(chunk);
+		notify();
+	};
 
-			const enqueue = (chunk: string) => {
-				if (closed) return;
-				try {
-					controller.enqueue(encoder.encode(chunk));
-				} catch {
-					close();
-				}
-			};
+	const finish = () => {
+		done = true;
+		notify();
+	};
 
+	const waitForNext = () =>
+		new Promise<void>((resolve) => {
+			resolveNext = resolve;
+		});
+
+	return sse(
+		(async function* () {
 			const onAbort = () => {
 				agent.abort();
-				close();
+				finish();
 			};
+
 			request.signal.addEventListener("abort", onAbort, { once: true });
 
-			try {
-				unsubscribe = agent.subscribe((event: AgentEvent) => {
-					if (event.type !== "message_update") return;
-					const update = event.assistantMessageEvent;
-					if (update.type !== "text_delta") return;
-					enqueue(sse(update.delta));
-				});
+			const unsubscribe = agent.subscribe((event: AgentEvent) => {
+				if (event.type !== "message_update") return;
+				const update = event.assistantMessageEvent;
+				if (update.type !== "text_delta") return;
+				push(update.delta);
+			});
 
-				await agent.prompt(prompt);
-				enqueue(sse("[DONE]"));
-				close();
-			} catch (error) {
-				if (!request.signal.aborted) {
-					const message =
-						error instanceof Error ? error.message : "Inference request failed";
-					enqueue(sse(JSON.stringify({ error: message })));
+			try {
+				void agent.prompt(prompt)
+					.then(() => {
+						push("[DONE]");
+						finish();
+					})
+					.catch((error) => {
+						if (!request.signal.aborted) {
+							const message =
+								error instanceof Error
+									? error.message
+									: "Inference request failed";
+							push(JSON.stringify({ error: message }));
+						}
+						finish();
+					});
+
+				while (!done || queue.length > 0) {
+					if (queue.length === 0) {
+						await waitForNext();
+						continue;
+					}
+
+					const chunk = queue.shift();
+					if (chunk) {
+						yield sse(chunk);
+					}
 				}
-				close();
 			} finally {
-				unsubscribe?.();
+				unsubscribe();
 				request.signal.removeEventListener("abort", onAbort);
 			}
-		},
-		cancel() {
-			getAgent().abort();
-			unsubscribe?.();
-		},
-	});
-
-	const headers = withCorsHeaders(new Headers());
-	return new Response(stream, { status: 200, headers });
+		})(),
+	);
 }
 
 function createInferenceApp() {
 	return new Elysia()
 		.get("/health", () =>
-			json({
+			({
 				ok: true,
 				port: currentServerPort ?? DEFAULT_PORT,
 				model: getAgentModelId(),
 			}),
 		)
-		.post("/context", async ({ request }) => {
-			const body = await request.json().catch(() => null);
+		.post("/context", async ({ body }) => {
 			const nextContext = setContext(parseContextBody(body));
 			const agent = getAgent();
 			agent.setSystemPrompt(buildSystemPrompt(nextContext));
 			agent.clearMessages();
-			return json({ ok: true });
+			return { ok: true };
 		})
-		.get("/context", () => json(getContext()))
+		.get("/context", () => getContext())
 		.get("/inline", async ({ request }) => {
 			const context = getContext();
 			if (!context.file || !context.surroundingCode) {
-				return json({ error: "No context. Call POST /context first." }, 400);
+				return status(400, { error: "No context. Call POST /context first." });
 			}
 
-			const busyResponse = await prepareStreamingRun();
-			if (busyResponse) {
-				return busyResponse;
+			const prep = await prepareStreamingRun();
+			if ("ok" in prep === false) {
+				return prep;
 			}
 
 			return streamAgentPrompt(request, buildFimPrompt(context));
 		})
-		.post("/generate", async ({ request }) => {
-			const body = await request.json().catch(() => null);
+		.post("/generate", async ({ body, request }) => {
 			const prompt =
 				body &&
 				typeof body === "object" &&
@@ -224,48 +205,47 @@ function createInferenceApp() {
 					: "";
 
 			if (!prompt.trim()) {
-				return json({ error: "Prompt is required." }, 400);
+				return status(400, { error: "Prompt is required." });
 			}
 
-			const busyResponse = await prepareStreamingRun();
-			if (busyResponse) {
-				return busyResponse;
+			const prep = await prepareStreamingRun();
+			if ("ok" in prep === false) {
+				return prep;
 			}
 
 			return streamAgentPrompt(request, prompt);
 		})
 		.post("/abort", () => {
 			getAgent().abort();
-			return json({ ok: true });
+			return { ok: true };
 		})
-		.post("/writeback", async ({ request }) => {
-			const body = await request.json().catch(() => null);
+		.post("/writeback", async ({ body }) => {
 			const payload = parseWritebackBody(body);
 			if (!payload.file) {
-				return json({ error: "file is required" }, 400);
+				return status(400, { error: "file is required" });
 			}
 
 			writebackStore.set(payload.file, payload);
-			return json({ ok: true });
+			return { ok: true };
 		})
-		.get("/writeback", ({ request }) => {
-			const file = new URL(request.url).searchParams.get("file");
+		.get("/writeback", ({ query }) => {
+			const file = typeof query.file === "string" ? query.file : null;
 			if (!file) {
-				return json({ error: "file query param is required" }, 400);
+				return status(400, { error: "file query param is required" });
 			}
 
 			const payload = writebackStore.get(file);
 			if (!payload) {
-				return json({ file: null, line: null, code: null });
+				return { file: null, line: null, code: null };
 			}
 
 			writebackStore.delete(file);
-			return json(payload);
+			return payload;
 		})
 		.post("/reload-config", async () => {
 			const settings = await loadSettings();
 			reconfigureAgent(settings);
-			return json({ ok: true });
+			return { ok: true };
 		});
 }
 
