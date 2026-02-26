@@ -1,32 +1,40 @@
 ## ADDED Requirements
 
-### Requirement: CLI argument parsing for context injection
-The Electrobun main process SHALL parse `--file <path>`, `--line <n>`, and `--selection "<text>"` from the process argv and pass them to the React UI via Electrobun IPC on window creation.
+### Requirement: CLI argument parsing for initial context injection
+The Electrobun main process SHALL parse `--file <path>`, `--line <n>`, and `--selection "<text>"` from the process argv. After the Bun HTTP server starts, the main process SHALL call `POST /context` on the server with the parsed values so the server's context state is populated before the UI opens.
 
 #### Scenario: App launched with full context
 - **WHEN** the app is launched with `--file /src/foo.ts --line 10 --selection "const x = 1"`
-- **THEN** the React UI receives `{ file: "/src/foo.ts", line: 10, selection: "const x = 1" }` via IPC on mount
+- **THEN** the main process calls `POST /context` with `{ file, line, selection }` and then opens the BrowserWindow; the React UI reads context from the server via `/context` on mount
 
 #### Scenario: App launched with no context
 - **WHEN** the app is launched with no CLI arguments
-- **THEN** the React UI receives `{ file: null, line: null, selection: null }`
+- **THEN** no `POST /context` call is made; the UI displays "No file context"
 
-### Requirement: Context update when app is already running
-When an editor extension launches the app while it is already running, the new CLI context SHALL be delivered to the running instance via the inference server's `POST /context` endpoint (the extension calls the running server, the server notifies the UI via IPC).
+### Requirement: Already-running guard — forward context to live server
+When an editor extension launches the Wingman app while it is already running (detected by a successful `GET /health` on the known port), the extension SHALL call `POST /context` directly on the running server instead of spawning a new process. The server's context update SHALL cause the UI to refresh its context header via polling.
 
-#### Scenario: Second launch with new context
-- **WHEN** the app is running and an extension calls `POST /context` with `{ file, line, selection }`
-- **THEN** the inference bridge receives the new context, forwards it to the React UI via Electrobun IPC, and the UI updates its context header
+#### Scenario: Second launch from extension, app already running
+- **WHEN** an extension tries to launch Wingman and `GET /health` succeeds
+- **THEN** the extension calls `POST /context` on the running server and does not spawn a new process
 
-### Requirement: Write-back triggered from UI sends to inference bridge
-The React UI SHALL call the inference bridge's `POST /writeback` endpoint when the user clicks "Write to Editor", using the current file/line context and the generated code.
+#### Scenario: Extension launches app for the first time
+- **WHEN** `GET /health` fails (app not running)
+- **THEN** the extension spawns the Wingman subprocess with `--file`, `--line`, `--selection` CLI args
 
-#### Scenario: Write-back initiated
-- **WHEN** the user clicks "Write to Editor" in the UI
-- **THEN** the UI calls `POST http://localhost:<port>/writeback` with `{ file, line, code }`
+### Requirement: UI reads context from server on mount and polls for updates
+The React UI SHALL fetch the current context by calling `GET /context` on the Bun server when it mounts and SHALL poll every 2 seconds to detect updates pushed by extensions.
 
-### Requirement: Settings IPC — read and write
-The Electrobun main process SHALL expose two IPC handlers to the React UI: `settings:read` (returns current settings JSON) and `settings:write` (writes updated settings JSON and calls `POST /reload-config` on the inference bridge).
+#### Scenario: UI mounts with active context
+- **WHEN** the React app loads and the server has a non-null context
+- **THEN** the context header displays the current file and line
+
+#### Scenario: Context updated by extension while UI is open
+- **WHEN** an extension calls `POST /context` and the UI polls within 2 seconds
+- **THEN** the context header updates to reflect the new file/line without a page reload
+
+### Requirement: Settings IPC — read and write via Electrobun IPC
+The Electrobun main process SHALL expose two IPC handlers to the React UI: `settings:read` (returns current settings JSON) and `settings:write` (writes updated settings JSON and calls `POST /reload-config` on the Bun server so the agent is reconfigured immediately).
 
 #### Scenario: UI reads settings on mount
 - **WHEN** the React settings panel mounts
@@ -34,4 +42,11 @@ The Electrobun main process SHALL expose two IPC handlers to the React UI: `sett
 
 #### Scenario: UI writes settings
 - **WHEN** the user saves settings
-- **THEN** the UI calls `settings:write` with the updated settings object; the main process writes the file and reloads the inference bridge config
+- **THEN** the UI calls `settings:write` via IPC; the main process writes the file and calls `POST /reload-config`; subsequent inference requests use the new configuration
+
+### Requirement: Write-back initiated from UI via server
+The React UI SHALL POST the generated code to the server's `/writeback` endpoint (not via IPC) using the file/line from the current context, so extensions polling the server receive the result.
+
+#### Scenario: Write-back initiated
+- **WHEN** the user clicks "Write to Editor" in the UI
+- **THEN** the UI calls `POST http://localhost:<port>/writeback` with `{ file, line, code }` from the current context

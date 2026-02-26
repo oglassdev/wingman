@@ -10,11 +10,12 @@ The monorepo uses Turborepo. Extensions will live in a new top-level `extensions
 - Inline ghost-text completions in VS Code, IntelliJ, and Zed triggered by the user's cursor position
 - A "Open Wingman" command in each editor that launches the Electrobun UI with `--file`, `--line`, and `--selection` context
 - Electrobun UI: settings panel (API key, model, temperature) + code generation panel that renders streaming output and can write the result back to the file at the specified line
-- A lightweight AI inference HTTP server embedded in the Electrobun main process, compatible with OpenAI's Chat Completions API and Ollama
+- A stateful Bun HTTP server embedded in the Electrobun main process that owns all AI state, configuration, and prompt construction — editor extensions are thin HTTP clients
+- The server uses `@mariozechner/pi-agent-core` as its inference engine, enabling multi-provider LLM support, tool execution, and event streaming out of the box
 - IPC/HTTP protocol between extensions and the Electrobun app
 
 **Non-Goals:**
-- Multi-file refactors or agentic tool-use loops
+- Multi-file refactors or agentic tool-use loops (MVP — but the agent is ready for it)
 - Chat history or multi-turn conversations in the UI (MVP is single-shot)
 - Building or distributing the extensions to marketplaces (dev-install only for MVP)
 - Authentication / user accounts
@@ -22,36 +23,61 @@ The monorepo uses Turborepo. Extensions will live in a new top-level `extensions
 
 ## Decisions
 
-### Decision 1: Communication between editor extension and Electrobun UI — local HTTP + CLI launch
+### Decision 1: The server owns all state — extensions are thin HTTP clients
 
-**Choice**: Each editor extension launches the Electrobun app as a subprocess with CLI arguments (`--file <path> --line <n> --selection "<text>"`). Once running, the app exposes a local HTTP server on a fixed port (default `7891`). Extensions send context updates and receive write-back events via this HTTP API.
+**Choice**: The Bun HTTP server maintains all AI-relevant state: the current editor context (`file`, `line`, `selection`, surrounding code), the active `Agent` instance, model configuration, and settings. Editor extensions do **not** construct prompts or manage tokens — they call thin, purpose-built endpoints:
+
+| Endpoint | Who calls it | What it does |
+|---|---|---|
+| `POST /context` | Any extension | Update the server's knowledge of file/line/selection/surrounding-code |
+| `GET /inline` | Extension's inline completion provider | Server constructs FIM prompt from stored context, runs agent, streams SSE tokens back |
+| `POST /generate` | UI or extension | Server runs a free-form generation prompt against stored context, streams SSE |
+| `POST /writeback` | UI | Store a code result for the extension to pick up |
+| `GET /writeback?file=` | Extension | Poll for a pending write-back result |
+| `POST /abort` | UI or extension | Abort the current agent run |
+| `GET /health` | Extensions on startup | Returns `{ ok, port, model }` |
+| `POST /reload-config` | Main process after settings save | Applies new settings to the running Agent |
 
 **Alternatives considered**:
-- *Named pipes / Unix sockets*: More efficient but significantly harder to implement in all three extension environments (especially IntelliJ's JVM sandbox).
-- *VS Code extension as the hub, others call it*: Vendor-specific, would break IntelliJ and Zed.
-- *WebSockets*: More complex than needed for MVP; HTTP long-poll is simpler to reason about.
+- *Client-constructs-prompt (original design)*: Extensions must know about token budgets, FIM format, model-specific prompt templates, and streaming SSE parsing. Any prompt change requires updating three extension codebases in three languages.
+- *WebSockets for streaming*: More setup; SSE from the server is sufficient for one-way token streaming and is callable from Kotlin/Rust without special libraries.
 
-**Rationale**: CLI launch is the lowest common denominator across all three extension environments. A local HTTP server is simple to implement in Bun and to call from any language (TypeScript, Kotlin, Rust).
+**Rationale**: Centralizing all intelligence on the server means every extension gets smarter for free when the server improves. Prompt engineering, context windowing, and model-specific tuning live in one TypeScript file. Extensions only need to know how to make HTTP requests and render ghost text.
 
 ---
 
-### Decision 2: Inline completions use the same inference HTTP server as the UI
+### Decision 2: Use `@mariozechner/pi-agent-core` as the inference engine
 
-**Choice**: Editor extensions call the same Bun inference HTTP server (`POST /complete`) for both inline ghost-text and the UI's code generation panel. The server streams SSE (Server-Sent Events).
+**Choice**: The Bun server instantiates a single `Agent` from `@mariozechner/pi-agent-core` (npm: `@mariozechner/pi-agent-core`). All LLM calls flow through the agent's `prompt()` / `continue()` interface. SSE streams to clients are built by subscribing to the agent's event emitter and forwarding `message_update` events.
+
+**Why pi-agent over raw fetch-to-OpenAI**:
+
+| Concern | Raw fetch | pi-agent |
+|---|---|---|
+| Multi-provider (Anthropic, OpenAI, Ollama) | Manual per-provider adapter | Built-in via `getModel()` |
+| Streaming | Manual SSE parse + forward | `message_update` event with `delta` |
+| Abort / cancel | `AbortController` wired manually | `agent.abort()` |
+| Tool calling (future) | Full reimplementation needed | `AgentTool[]` on the Agent |
+| Steering mid-generation | Not possible | `agent.steer()` |
+| Context pruning | Manual | `transformContext` hook |
+| Retry on error | Manual | `agent.continue()` after error |
+
+**Provider support**: `@mariozechner/pi-ai` (peer dep of pi-agent) supports Anthropic, OpenAI, Google Gemini, and any OpenAI-compatible endpoint (covers Ollama). For MVP the user configures one provider/model in settings; the server calls `getModel(provider, modelId)` and passes it to the Agent.
+
+**Agent lifecycle**: One `Agent` instance is created per session context update. On `POST /context`, the server resets the agent's messages (`agent.clearMessages()`) and updates the system prompt with the new file/line/selection context. On `GET /inline` or `POST /generate`, it calls `agent.prompt(...)` and pipes events to the SSE response.
 
 **Alternatives considered**:
-- *Extensions call the LLM directly*: Requires each extension to handle API key storage, retry logic, and streaming — duplicated across three environments and languages.
-- *Separate completion endpoint*: Unnecessary complexity for MVP.
-
-**Rationale**: Centralizing inference in the Electrobun process means API key management, model config, and retry logic live in one place (the Bun server). Extensions become thin clients.
+- *LangChain.js*: Far heavier, slower startup in Bun, API is unstable between versions.
+- *Vercel AI SDK*: Great for Next.js; less natural in a raw Bun server; doesn't give us the steering/tool architecture we'll want for future features.
+- *Direct OpenAI SDK*: Would need a parallel Anthropic SDK, manual streaming, no tool execution framework.
 
 ---
 
-### Decision 3: Extension architecture — one TypeScript shared core, thin wrappers
+### Decision 3: Communication between editor extension and Electrobun UI — CLI launch + local HTTP
 
-**Choice**: A `packages/shared/` package provides prompt construction, the HTTP client for calling the inference server, and protocol types. Each extension imports or vendors this. VS Code (TypeScript) imports directly. IntelliJ (Kotlin) has its own HTTP client calling the same server endpoints. Zed (Rust) similarly calls the HTTP server.
+**Choice**: Each editor extension launches the Electrobun app as a subprocess with CLI arguments (`--file <path> --line <n> --selection "<text>"`). Once running, the app exposes the Bun HTTP server on a fixed port (default `7891`). Extensions discover the port from `$TMPDIR/wingman.port` and call the server's thin endpoints.
 
-**Rationale**: Avoids duplicating prompt logic. IntelliJ and Zed can't use the npm package directly, but they can speak the same HTTP protocol. For MVP, the shared package primarily benefits the VS Code extension; IntelliJ and Zed get simpler but independent implementations.
+**Rationale**: CLI launch is the lowest common denominator across all three extension environments. A local HTTP server is callable from TypeScript, Kotlin, and Rust without special IPC libraries.
 
 ---
 
@@ -59,33 +85,36 @@ The monorepo uses Turborepo. Extensions will live in a new top-level `extensions
 
 **Choice**: The Electrobun app runs as a small floating panel (640×480) rather than a full-window app. It's launched by the editor extension command and stays running in the background (system tray / menu bar icon) to avoid cold-start latency on subsequent uses.
 
-**Rationale**: A floating panel feels native to the "quick assistant" UX. Keeping it running avoids the ~1-2s Bun startup cost on every invocation.
+**Rationale**: A floating panel feels native to the "quick assistant" UX. Keeping it running avoids the ~1-2s Bun startup cost on every invocation. The running Bun server also means the `Agent` instance and its message history stay warm between uses.
 
 ---
 
-### Decision 5: Settings persistence — Bun's file system, JSON file in app data dir
+### Decision 5: Settings persistence — Bun file system, JSON in app data dir
 
-**Choice**: Settings (API key, model, temperature) are stored as a JSON file in the OS app data directory, read/written by the Bun main process, and exposed to the React UI via Electrobun IPC.
+**Choice**: Settings (provider, API key, model ID, temperature) are stored as a JSON file in the OS app data directory, read/written by the Bun main process, and exposed to the React UI via Electrobun IPC. On save, the main process calls `POST /reload-config` on the Bun server, which calls `agent.setModel(getModel(...))` with the new values.
 
-**Rationale**: Simple, no database dependency, survives app restarts. Electrobun's IPC makes it straightforward to expose this to the browser context.
+**Rationale**: Simple, no database dependency, survives app restarts. The pi-agent's `setModel()` / `setSystemPrompt()` methods make live reconfiguration trivial.
 
 ## Risks / Trade-offs
 
-- **Cold-start latency** → Mitigation: Keep the Electrobun process running after first launch; hide to tray on close.
-- **Port conflict on `7891`** → Mitigation: Fall back to a random port and write the chosen port to a known temp file that extensions can read.
-- **Inline completions are slow (LLM latency)** → Mitigation: Use a short debounce (300ms), cancel in-flight requests on new keystrokes, and prefer streaming so the first tokens appear fast.
-- **IntelliJ plugin sandboxing** → Mitigation: IntelliJ allows outbound HTTP; we only need `java.net.HttpURLConnection` or OkHttp, both available. No native binaries required.
-- **Zed extension API maturity** → Mitigation: Zed's extension API is still evolving; scope Zed to the slash-command trigger only for MVP, skip ghost-text if the API doesn't support it yet.
-- **API key stored in plain JSON** → Mitigation: Document this; use OS keychain integration post-MVP.
+- **Cold-start latency** → Mitigation: Keep the Electrobun process running after first launch; hide to tray on close. The `Agent` instance stays warm.
+- **Port conflict on `7891`** → Mitigation: Fall back to a random port and write the chosen port to `$TMPDIR/wingman.port` for extensions to discover.
+- **Inline completions are slow (LLM latency)** → Mitigation: Extensions debounce 300ms locally before hitting `/inline`; the agent streams tokens immediately so first-token latency feels fast; extensions abort the SSE stream on new keystrokes.
+- **Single Agent instance for concurrent requests** → Mitigation: For MVP, inline and generate share one agent and we serialise requests (reject concurrent calls with 409). Post-MVP, spawn per-request agents using the low-level `agentLoop` API.
+- **IntelliJ plugin sandboxing** → Mitigation: IntelliJ allows outbound HTTP; OkHttp (bundled with the IntelliJ platform) handles SSE. No native binaries required.
+- **Zed extension API maturity** → Mitigation: Scope Zed to slash-command + `POST /generate` for MVP, skip ghost-text if the Zed API doesn't support it yet.
+- **API key stored in plain JSON** → Mitigation: Documented limitation; OS keychain integration is post-MVP.
+- **pi-agent / pi-ai package availability** → Mitigation: Both are published to npm under the `@mariozechner` scope. Pin to a known-good version; vendor if the package becomes unavailable.
 
 ## Migration Plan
 
 1. No existing users or data to migrate.
-2. Deploy order: inference server → VS Code extension → UI → IntelliJ plugin → Zed extension.
+2. Deploy order: Bun server (with pi-agent) → VS Code extension → UI → IntelliJ plugin → Zed extension.
 3. Rollback: disable extensions; the Electrobun app is standalone and can be killed.
 
 ## Open Questions
 
-- Should inline ghost-text completions be opt-in (off by default, toggled in settings) to avoid excessive API calls?
-- What is the exact Zed extension API surface for inline assist as of the current Zed release? Needs a spike.
+- Should inline ghost-text completions be opt-in (off by default, toggled in settings) to avoid API costs? Likely yes.
+- Confirm `@mariozechner/pi-ai` supports Ollama via its OpenAI-compatible adapter — needs a quick spike.
 - Should the UI support multiple simultaneous file/line contexts (tabs), or strictly one at a time for MVP?
+- For `GET /inline`, should the server wait for the full completion before responding, or stream SSE tokens and let the extension render incrementally? (SSE streaming is preferred but requires SSE parsing in all three extension languages — confirm feasibility for IntelliJ/Kotlin.)
