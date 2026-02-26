@@ -11,6 +11,8 @@
     "clean": "rm -rf build .turbo"
   },
   "dependencies": {
+    "@mariozechner/pi-agent-core": "^0.55.1",
+    "@mariozechner/pi-ai": "^0.55.1",
     "electrobun": "1.14.4"
   },
   "devDependencies": {

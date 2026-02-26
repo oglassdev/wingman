@@ -8,21 +8,21 @@
 
 ## 2. Bun Inference Server — pi-agent Core
 
-- [ ] 2.1 Add `@mariozechner/pi-agent-core` and `@mariozechner/pi-ai` to `apps/server/package.json`
-- [ ] 2.2 Create `apps/server/src/settings.ts` — read/write `wingman-settings.json` from the OS app data dir; export `loadSettings()` and `saveSettings()`
-- [ ] 2.3 Create `apps/server/src/agent.ts` — instantiate the `Agent`, expose `getAgent()`, `resetAgent()`, `reconfigureAgent(settings)` using `agent.setModel()`, `agent.setSystemPrompt()`, `agent.clearMessages()`
-- [ ] 2.4 Create `apps/server/src/context.ts` — maintain the current `WingmanContext` state; export `setContext()`, `getContext()`, and `buildSystemPrompt(context)` that returns the full system prompt string with file/line/code context
-- [ ] 2.5 Create `apps/server/src/inference-server.ts` — Bun HTTP server with port fallback logic (try 7891 → random → write to `$TMPDIR/wingman.port`)
-- [ ] 2.6 Implement `GET /health` — returns `{ ok: true, port, model: agent.state.model?.id ?? null }`
-- [ ] 2.7 Implement `POST /context` — calls `setContext()`, rebuilds system prompt via `agent.setSystemPrompt()`, calls `agent.clearMessages()`, returns `{ ok: true }`
-- [ ] 2.8 Implement `GET /context` — returns the current `WingmanContext` object (used by UI polling)
-- [ ] 2.9 Implement `GET /inline` — builds FIM prompt from stored context, calls `agent.prompt(fimPrompt)`, subscribes to `message_update` events and streams each `delta` as SSE; on request close calls `agent.abort()`
-- [ ] 2.10 Implement concurrent-request guard on `/inline` and `/generate` — if agent is streaming, call `agent.abort()` + `agent.waitForIdle()` before starting new run; return HTTP 409 if abort times out after 2s
-- [ ] 2.11 Implement `POST /generate` — accepts `{ prompt: string }`, calls `agent.prompt(prompt)`, streams SSE tokens; on connection close calls `agent.abort()`
-- [ ] 2.12 Implement `POST /abort` — calls `agent.abort()`, returns `{ ok: true }`
-- [ ] 2.13 Implement `POST /writeback` and `GET /writeback` — in-memory store with get-and-remove semantics per file path
-- [ ] 2.14 Implement `POST /reload-config` — calls `loadSettings()` and `reconfigureAgent(settings)`
-- [ ] 2.15 Start the inference server from `apps/server/src/index.ts` before creating the BrowserWindow
+- [x] 2.1 Add `@mariozechner/pi-agent-core` and `@mariozechner/pi-ai` to `apps/server/package.json`
+- [x] 2.2 Create `apps/server/src/settings.ts` — read/write `wingman-settings.json` from the OS app data dir; export `loadSettings()` and `saveSettings()`
+- [x] 2.3 Create `apps/server/src/agent.ts` — instantiate the `Agent`, expose `getAgent()`, `resetAgent()`, `reconfigureAgent(settings)` using `agent.setModel()`, `agent.setSystemPrompt()`, `agent.clearMessages()`
+- [x] 2.4 Create `apps/server/src/context.ts` — maintain the current `WingmanContext` state; export `setContext()`, `getContext()`, and `buildSystemPrompt(context)` that returns the full system prompt string with file/line/code context
+- [x] 2.5 Create `apps/server/src/inference-server.ts` — Bun HTTP server with port fallback logic (try 7891 → random → write to `$TMPDIR/wingman.port`)
+- [x] 2.6 Implement `GET /health` — returns `{ ok: true, port, model: agent.state.model?.id ?? null }`
+- [x] 2.7 Implement `POST /context` — calls `setContext()`, rebuilds system prompt via `agent.setSystemPrompt()`, calls `agent.clearMessages()`, returns `{ ok: true }`
+- [x] 2.8 Implement `GET /context` — returns the current `WingmanContext` object (used by UI polling)
+- [x] 2.9 Implement `GET /inline` — builds FIM prompt from stored context, calls `agent.prompt(fimPrompt)`, subscribes to `message_update` events and streams each `delta` as SSE; on request close calls `agent.abort()`
+- [x] 2.10 Implement concurrent-request guard on `/inline` and `/generate` — if agent is streaming, call `agent.abort()` + `agent.waitForIdle()` before starting new run; return HTTP 409 if abort times out after 2s
+- [x] 2.11 Implement `POST /generate` — accepts `{ prompt: string }`, calls `agent.prompt(prompt)`, streams SSE tokens; on connection close calls `agent.abort()`
+- [x] 2.12 Implement `POST /abort` — calls `agent.abort()`, returns `{ ok: true }`
+- [x] 2.13 Implement `POST /writeback` and `GET /writeback` — in-memory store with get-and-remove semantics per file path
+- [x] 2.14 Implement `POST /reload-config` — calls `loadSettings()` and `reconfigureAgent(settings)`
+- [x] 2.15 Start the inference server from `apps/server/src/index.ts` before creating the BrowserWindow
 
 ## 3. Electrobun Main Process — Context & IPC
 

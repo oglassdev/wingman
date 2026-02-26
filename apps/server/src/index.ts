@@ -1,4 +1,5 @@
 import { BrowserWindow, Updater } from "electrobun/bun";
+import { startInferenceServer } from "./inference-server";
 
 const DEV_SERVER_PORT = 5173;
 const DEV_SERVER_URL = `http://localhost:${DEV_SERVER_PORT}`;
@@ -22,6 +23,8 @@ async function getMainViewUrl(): Promise<string> {
 
 // Create the main application window
 const url = await getMainViewUrl();
+const inferenceServer = await startInferenceServer();
+console.log(`Inference server listening on ${inferenceServer.url}`);
 
 const mainWindow = new BrowserWindow({
 	title: "Wingman",
