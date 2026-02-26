@@ -1,61 +1,88 @@
-# React + Tailwind + Vite Electrobun Template
+# Wingman
 
-A fast Electrobun desktop app template with React, Tailwind CSS, and Vite for hot module replacement (HMR).
+An Electrobun desktop application with a server/client architecture using Turborepo.
+
+## Architecture
+
+```
+├── apps/
+│   ├── server/          # Electrobun main process (Bun runtime)
+│   └── client/          # React frontend (Vite + Tailwind CSS)
+├── packages/            # Shared packages (future)
+└── turbo.json           # Turborepo configuration
+```
+
+- **Server**: The Electrobun main process that runs on Bun, manages windows, and provides native APIs.
+- **Client**: A React application built with Vite and styled with Tailwind CSS.
 
 ## Getting Started
 
+### Prerequisites
+
+- [Bun](https://bun.sh/) (runtime and package manager)
+
+### Installation
+
 ```bash
-# Install dependencies
 bun install
+```
 
-# Development without HMR (uses bundled assets)
+### Development
+
+**Without HMR (standard development):**
+```bash
 bun run dev
+```
 
-# Development with HMR (recommended)
+**With HMR (hot module replacement):**
+```bash
 bun run dev:hmr
+```
 
-# Build for production
+### Building
+
+```bash
 bun run build
-
-# Build for production release
-bun run build:prod
 ```
 
-## How HMR Works
+### Project Commands
 
-When you run `bun run dev:hmr`:
+| Command | Description |
+|---------|-------------|
+| `bun run dev` | Start development without HMR |
+| `bun run dev:hmr` | Start development with hot reload |
+| `bun run build` | Build all packages for production |
+| `bun run clean` | Clean build artifacts |
 
-1. **Vite dev server** starts on `http://localhost:5173` with HMR enabled
-2. **Electrobun** starts and detects the running Vite server
-3. The app loads from the Vite dev server instead of bundled assets
-4. Changes to React components update instantly without full page reload
+## Package Structure
 
-When you run `bun run dev` (without HMR):
+### `@wingman/server`
 
-1. Electrobun starts and loads from `views://mainview/index.html`
-2. You need to rebuild (`bun run build`) to see changes
+Location: `apps/server/`
 
-## Project Structure
+The Electrobun main process. Handles:
+- Window management
+- Native OS APIs
+- IPC communication with the client
 
-```
-├── src/
-│   ├── bun/
-│   │   └── index.ts        # Main process (Electrobun/Bun)
-│   └── mainview/
-│       ├── App.tsx         # React app component
-│       ├── main.tsx        # React entry point
-│       ├── index.html      # HTML template
-│       └── index.css       # Tailwind CSS
-├── electrobun.config.ts    # Electrobun configuration
-├── vite.config.ts          # Vite configuration
-├── tailwind.config.js      # Tailwind configuration
-└── package.json
-```
+### `@wingman/client`
 
-## Customizing
+Location: `apps/client/`
 
-- **React components**: Edit files in `src/mainview/`
-- **Tailwind theme**: Edit `tailwind.config.js`
-- **Vite settings**: Edit `vite.config.ts`
-- **Window settings**: Edit `src/bun/index.ts`
-- **App metadata**: Edit `electrobun.config.ts`
+The React frontend. Features:
+- React 19
+- Vite 6 with HMR support
+- Tailwind CSS 4
+
+## Technology Stack
+
+- ⚡ **Electrobun** - Desktop app framework
+- ⚛️ **React** - UI library
+- 🎨 **Tailwind CSS** - Utility-first CSS
+- 🔥 **Vite** - Build tool with HMR
+- 🚀 **Turborepo** - Monorepo task runner
+- 🥟 **Bun** - Runtime and package manager
+
+## License
+
+MIT

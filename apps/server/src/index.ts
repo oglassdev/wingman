@@ -13,7 +13,7 @@ async function getMainViewUrl(): Promise<string> {
 			return DEV_SERVER_URL;
 		} catch {
 			console.log(
-				"Vite dev server not running. Run 'bun run dev:hmr' for HMR support.",
+				"Vite dev server not running. Run 'pnpm dev:hmr' for HMR support.",
 			);
 		}
 	}
@@ -24,7 +24,7 @@ async function getMainViewUrl(): Promise<string> {
 const url = await getMainViewUrl();
 
 const mainWindow = new BrowserWindow({
-	title: "React + Tailwind + Vite",
+	title: "Wingman",
 	url,
 	frame: {
 		width: 900,
@@ -34,4 +34,4 @@ const mainWindow = new BrowserWindow({
 	},
 });
 
-console.log("React Tailwind Vite app started!");
+console.log("Wingman app started!");

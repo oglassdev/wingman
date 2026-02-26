@@ -7,10 +7,10 @@ function App() {
 		<div className="min-h-screen bg-gradient-to-br from-indigo-500 to-purple-600 text-gray-900">
 			<div className="container mx-auto px-4 py-10 max-w-3xl">
 				<h1 className="text-5xl font-bold text-center text-white mb-2 drop-shadow-lg">
-					React + Tailwind + Vite
+					Wingman
 				</h1>
 				<p className="text-xl text-center text-white/90 mb-10">
-					A fast Electrobun app with hot module replacement
+					Server + Client architecture with Turborepo
 				</p>
 
 				<div className="bg-white rounded-xl shadow-xl p-8 mb-8">
@@ -48,7 +48,7 @@ function App() {
 							<span>
 								Run{" "}
 								<code className="bg-gray-100 px-2 py-1 rounded text-sm">
-									bun run dev
+									pnpm dev
 								</code>{" "}
 								for development without HMR
 							</span>
@@ -58,7 +58,7 @@ function App() {
 							<span>
 								Run{" "}
 								<code className="bg-gray-100 px-2 py-1 rounded text-sm">
-									bun run dev:hmr
+									pnpm dev:hmr
 								</code>{" "}
 								for development with hot reload
 							</span>
@@ -68,7 +68,7 @@ function App() {
 							<span>
 								Run{" "}
 								<code className="bg-gray-100 px-2 py-1 rounded text-sm">
-									bun run build
+									pnpm build
 								</code>{" "}
 								to build for production
 							</span>
@@ -77,8 +77,8 @@ function App() {
 				</div>
 
 				<div className="bg-white rounded-xl shadow-xl p-8">
-					<h2 className="text-2xl font-semibold text-indigo-600 mb-4">Stack</h2>
-					<div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+					<h2 className="text-2xl font-semibold text-indigo-600 mb-4">Monorepo Stack</h2>
+					<div className="grid grid-cols-2 md:grid-cols-5 gap-4">
 						<div className="text-center p-4 bg-gray-50 rounded-lg">
 							<div className="text-3xl mb-2">⚡</div>
 							<div className="font-medium">Electrobun</div>
@@ -95,6 +95,10 @@ function App() {
 							<div className="text-3xl mb-2">🔥</div>
 							<div className="font-medium">Vite HMR</div>
 						</div>
+						<div className="text-center p-4 bg-gray-50 rounded-lg">
+							<div className="text-3xl mb-2">🚀</div>
+							<div className="font-medium">Turborepo</div>
+						</div>
 					</div>
 				</div>
 
@@ -102,7 +106,7 @@ function App() {
 					<p>
 						Edit{" "}
 						<code className="bg-white/20 px-2 py-1 rounded text-sm">
-							src/mainview/App.tsx
+							apps/client/src/App.tsx
 						</code>{" "}
 						and save to see HMR in action
 					</p>

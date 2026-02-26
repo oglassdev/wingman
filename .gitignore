@@ -209,6 +209,16 @@ dist
 .history
 .ionide
 
+### Turborepo ###
+.turbo
+
+### Electrobun ###
+build/
+My App.app/
+
+### Bun ###
+bun.lockb
+
 ### Windows ###
 # Windows thumbnail cache files
 Thumbs.db
