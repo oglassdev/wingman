@@ -47,14 +47,14 @@
 
 ## 5. VS Code Extension
 
-- [ ] 5.1 Create `extensions/vscode/` with `package.json` (publisher, name, `engines.vscode`) and `tsconfig.json`
-- [ ] 5.2 Implement `extensions/vscode/src/extension.ts` — activate/deactivate lifecycle; register inline completion provider and "Wingman: Open" command
-- [ ] 5.3 Implement inline completion provider: on trigger, read 20 lines before + 10 lines after cursor; call `POST /context` with `{ file, line, selection, surroundingCode }`; then open SSE to `GET /inline`; feed tokens into `InlineCompletionItem`
-- [ ] 5.4 Implement 300ms debounce in the completion provider; close open SSE connections on new keystrokes using `CancellationToken` and `AbortController`
-- [ ] 5.5 Implement "Wingman: Open" command — check `GET /health`; if running call `POST /context`; if not spawn subprocess with `--file --line --selection` args; then bring window to front
-- [ ] 5.6 Implement write-back polling — `GET /writeback?file=<path>` on a 2-second interval; on result, use `vscode.workspace.applyEdit` to insert code at the specified line
-- [ ] 5.7 Add `wingman.enabled` (bool, default true) and `wingman.inferencePort` (number, default 7891) settings to `package.json` `contributes.configuration`
-- [ ] 5.8 Add `launch.json` for running the extension in the VS Code Extension Development Host
+- [x] 5.1 Create `extensions/vscode/` with `package.json` (publisher, name, `engines.vscode`) and `tsconfig.json`
+- [x] 5.2 Implement `extensions/vscode/src/extension.ts` — activate/deactivate lifecycle; register inline completion provider and "Wingman: Open" command
+- [x] 5.3 Implement inline completion provider: on trigger, read 20 lines before + 10 lines after cursor; call `POST /context` with `{ file, line, selection, surroundingCode }`; then open SSE to `GET /inline`; feed tokens into `InlineCompletionItem`
+- [x] 5.4 Implement 300ms debounce in the completion provider; close open SSE connections on new keystrokes using `CancellationToken` and `AbortController`
+- [x] 5.5 Implement "Wingman: Open" command — check `GET /health`; if running call `POST /context`; if not spawn subprocess with `--file --line --selection` args; then bring window to front
+- [x] 5.6 Implement write-back polling — `GET /writeback?file=<path>` on a 2-second interval; on result, use `vscode.workspace.applyEdit` to insert code at the specified line
+- [x] 5.7 Add `wingman.enabled` (bool, default true) and `wingman.inferencePort` (number, default 7891) settings to `package.json` `contributes.configuration`
+- [x] 5.8 Add `launch.json` for running the extension in the VS Code Extension Development Host
 
 ## 6. IntelliJ Plugin
 
