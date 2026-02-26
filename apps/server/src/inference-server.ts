@@ -2,6 +2,7 @@ import { writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 
 import type { AgentEvent } from "@mariozechner/pi-agent-core";
+import { Elysia } from "elysia";
 
 import type {
 	WingmanContext,
@@ -14,8 +15,6 @@ import { loadSettings } from "./settings";
 
 const DEFAULT_PORT = 7891;
 const ABORT_TIMEOUT_MS = 2_000;
-
-type JsonOk = { ok: true };
 
 const writebackStore = new Map<string, WritebackPayload>();
 let currentServerPort: number | null = null;
@@ -184,102 +183,90 @@ function streamAgentPrompt(request: Request, prompt: string): Response {
 	return new Response(stream, { status: 200, headers });
 }
 
-async function handleRequest(request: Request): Promise<Response> {
-	const url = new URL(request.url);
-	const pathname = url.pathname;
+function createInferenceApp() {
+	return new Elysia()
+		.get("/health", () =>
+			json({
+				ok: true,
+				port: currentServerPort ?? DEFAULT_PORT,
+				model: getAgentModelId(),
+			}),
+		)
+		.post("/context", async ({ request }) => {
+			const body = await request.json().catch(() => null);
+			const nextContext = setContext(parseContextBody(body));
+			const agent = getAgent();
+			agent.setSystemPrompt(buildSystemPrompt(nextContext));
+			agent.clearMessages();
+			return json({ ok: true });
+		})
+		.get("/context", () => json(getContext()))
+		.get("/inline", async ({ request }) => {
+			const context = getContext();
+			if (!context.file || !context.surroundingCode) {
+				return json({ error: "No context. Call POST /context first." }, 400);
+			}
 
-	if (request.method === "GET" && pathname === "/health") {
-		return json({
-			ok: true,
-			port: currentServerPort ?? DEFAULT_PORT,
-			model: getAgentModelId(),
+			const busyResponse = await prepareStreamingRun();
+			if (busyResponse) {
+				return busyResponse;
+			}
+
+			return streamAgentPrompt(request, buildFimPrompt(context));
+		})
+		.post("/generate", async ({ request }) => {
+			const body = await request.json().catch(() => null);
+			const prompt =
+				body &&
+				typeof body === "object" &&
+				typeof (body as { prompt?: unknown }).prompt === "string"
+					? (body as { prompt: string }).prompt
+					: "";
+
+			if (!prompt.trim()) {
+				return json({ error: "Prompt is required." }, 400);
+			}
+
+			const busyResponse = await prepareStreamingRun();
+			if (busyResponse) {
+				return busyResponse;
+			}
+
+			return streamAgentPrompt(request, prompt);
+		})
+		.post("/abort", () => {
+			getAgent().abort();
+			return json({ ok: true });
+		})
+		.post("/writeback", async ({ request }) => {
+			const body = await request.json().catch(() => null);
+			const payload = parseWritebackBody(body);
+			if (!payload.file) {
+				return json({ error: "file is required" }, 400);
+			}
+
+			writebackStore.set(payload.file, payload);
+			return json({ ok: true });
+		})
+		.get("/writeback", ({ request }) => {
+			const file = new URL(request.url).searchParams.get("file");
+			if (!file) {
+				return json({ error: "file query param is required" }, 400);
+			}
+
+			const payload = writebackStore.get(file);
+			if (!payload) {
+				return json({ file: null, line: null, code: null });
+			}
+
+			writebackStore.delete(file);
+			return json(payload);
+		})
+		.post("/reload-config", async () => {
+			const settings = await loadSettings();
+			reconfigureAgent(settings);
+			return json({ ok: true });
 		});
-	}
-
-	if (request.method === "POST" && pathname === "/context") {
-		const body = await request.json().catch(() => null);
-		const nextContext = setContext(parseContextBody(body));
-		const agent = getAgent();
-		agent.setSystemPrompt(buildSystemPrompt(nextContext));
-		agent.clearMessages();
-		return json({ ok: true });
-	}
-
-	if (request.method === "GET" && pathname === "/context") {
-		return json(getContext());
-	}
-
-	if (request.method === "GET" && pathname === "/inline") {
-		const context = getContext();
-		if (!context.file || !context.surroundingCode) {
-			return json({ error: "No context. Call POST /context first." }, 400);
-		}
-
-		const busyResponse = await prepareStreamingRun();
-		if (busyResponse) {
-			return busyResponse;
-		}
-
-		return streamAgentPrompt(request, buildFimPrompt(context));
-	}
-
-	if (request.method === "POST" && pathname === "/generate") {
-		const body = await request.json().catch(() => null);
-		const prompt =
-			body && typeof body === "object" && typeof (body as { prompt?: unknown }).prompt === "string"
-				? (body as { prompt: string }).prompt
-				: "";
-
-		if (!prompt.trim()) {
-			return json({ error: "Prompt is required." }, 400);
-		}
-
-		const busyResponse = await prepareStreamingRun();
-		if (busyResponse) {
-			return busyResponse;
-		}
-
-		return streamAgentPrompt(request, prompt);
-	}
-
-	if (request.method === "POST" && pathname === "/abort") {
-		getAgent().abort();
-		return json({ ok: true });
-	}
-
-	if (request.method === "POST" && pathname === "/writeback") {
-		const body = await request.json().catch(() => null);
-		const payload = parseWritebackBody(body);
-		if (!payload.file) {
-			return json({ error: "file is required" }, 400);
-		}
-
-		writebackStore.set(payload.file, payload);
-		return json({ ok: true });
-	}
-
-	if (request.method === "GET" && pathname === "/writeback") {
-		const file = url.searchParams.get("file");
-		if (!file) {
-			return json({ error: "file query param is required" }, 400);
-		}
-
-		const payload = writebackStore.get(file);
-		if (!payload) {
-			return json({ file: null, line: null, code: null });
-		}
-
-		writebackStore.delete(file);
-		return json(payload);
-	}
-
-	if (request.method === "POST" && pathname === "/reload-config") {
-		const settings = await loadSettings();
-		reconfigureAgent(settings);
-		return json({ ok: true });
-	}
-
-	return json({ error: "Not found" }, 404);
 }
 
 async function isPortAvailable(port: number): Promise<boolean> {
@@ -329,10 +316,13 @@ export async function startInferenceServer(): Promise<InferenceServerHandle> {
 	reconfigureAgent(settings);
 
 	const port = await choosePort(DEFAULT_PORT);
+	const app = createInferenceApp();
 	const server = Bun.serve({
 		hostname: "127.0.0.1",
 		port,
-		fetch: handleRequest,
+		fetch(request) {
+			return app.handle(request);
+		},
 	});
 
 	const resolvedPort = server.port ?? port;
