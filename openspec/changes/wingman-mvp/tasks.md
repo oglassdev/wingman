@@ -1,10 +1,10 @@
 ## 1. Monorepo & Shared Package Setup
 
-- [ ] 1.1 Create `packages/shared/` with `package.json` (name: `@wingman/shared`) and TypeScript config
-- [ ] 1.2 Add protocol types: `packages/shared/src/types.ts` — `WingmanContext`, `WritebackPayload`, `WingmanSettings`, `InferenceServerStatus`
-- [ ] 1.3 Add port-discovery helper: `packages/shared/src/port.ts` — reads `$TMPDIR/wingman.port` and returns the current server port as a number
-- [ ] 1.4 Add HTTP client helpers: `packages/shared/src/client.ts` — `postContext()`, `getInline()` (returns an EventSource/fetch stream), `getWriteback()`, `getHealth()` functions
-- [ ] 1.5 Add `@wingman/shared` to the Turborepo workspace and wire it into `turbo.json`
+- [x] 1.1 Create `packages/shared/` with `package.json` (name: `@wingman/shared`) and TypeScript config
+- [x] 1.2 Add protocol types: `packages/shared/src/types.ts` — `WingmanContext`, `WritebackPayload`, `WingmanSettings`, `InferenceServerStatus`
+- [x] 1.3 Add port-discovery helper: `packages/shared/src/port.ts` — reads `$TMPDIR/wingman.port` and returns the current server port as a number
+- [x] 1.4 Add HTTP client helpers: `packages/shared/src/client.ts` — `postContext()`, `getInline()` (returns an EventSource/fetch stream), `getWriteback()`, `getHealth()` functions
+- [x] 1.5 Add `@wingman/shared` to the Turborepo workspace and wire it into `turbo.json`
 
 ## 2. Bun Inference Server — pi-agent Core
 

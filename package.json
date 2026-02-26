@@ -12,6 +12,7 @@
     "dev": "turbo run dev",
     "dev:hmr": "turbo run dev:hmr",
     "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
     "clean": "turbo run clean && rm -rf node_modules .turbo"
   },
   "devDependencies": {
